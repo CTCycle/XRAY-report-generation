@@ -2,13 +2,19 @@ import os
 import sys
 import pandas as pd
 from sklearn.model_selection import train_test_split
+
+# set warnings
+#------------------------------------------------------------------------------
 import warnings
 warnings.simplefilter(action='ignore', category = Warning)
 
-# [IMPORT MODULES AND CLASSES]
-#==============================================================================
+# add modules path to sys
+#------------------------------------------------------------------------------
 if __name__ == '__main__':
     sys.path.append(os.path.join(os.path.dirname(__file__), '..'))  
+
+# import modules and classes
+#------------------------------------------------------------------------------
 from modules.components.training_classes import XRAYPreProcessing
 from modules.components.data_classes import XRAYDataSet
 import modules.global_variables as GlobVar

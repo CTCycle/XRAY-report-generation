@@ -1,11 +1,12 @@
-import os
 import sys
+
+# set warnings
+#------------------------------------------------------------------------------
 import warnings
 warnings.simplefilter(action='ignore', category = Warning)
 
-# [IMPORT MODULES AND CLASSES]
-# =============================================================================
-sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+# import modules and classes
+#------------------------------------------------------------------------------
 from modules.components.data_classes import UserOperations
 
 # [MAIN MENU]
@@ -24,8 +25,6 @@ lacinia velit justo sed sapien. Nam euismod, velit vel tincidunt luctus, justo v
 ultricies nisl, vel lacinia velit justo sed sapien. Mauris euismod, velit vel tincidunt luctus, 
 justo velit ultricies nisl, vel lacinia velit justo sed sapien. 
 ''')
-
-
 user_operations = UserOperations()
 operations_menu = {'1': 'Preprocess XRAY dataset', 
                    '4': 'Pretrain XRAYREP model',                   
@@ -54,7 +53,3 @@ while True:
         break
 
 
-# script end
-# =============================================================================
-if __name__ == '__main__':
-    pass
