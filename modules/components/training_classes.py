@@ -1,173 +1,21 @@
 import os
-from datetime import datetime
 import numpy as np
+import json
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.preprocessing.text import Tokenizer,tokenizer_from_json
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from keras.models import Model
+from keras.layers import Dense,Conv2D, MaxPooling2D
+from keras.layers import Embedding, MultiHeadAttention
 from keras import layers 
 
+# set environment variables
+#------------------------------------------------------------------------------
+os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
 
-
-# [PREPROCESSING PIPELINE]
-#==============================================================================
-#==============================================================================
-#==============================================================================
-class PreProcessing:
-    
-    def __init__(self): 
-        pass      
-        
-    #==========================================================================
-    def batch_size_finder(self, target, samples):
-
-        divisors = []
-        for i in range(1, samples+1):
-            if samples % i == 0:
-                divisors.append(i)
-        delta_bs = [abs(target - x) for x in divisors]
-        min_index = delta_bs.index(min(delta_bs))
-        refined_bs = divisors[min_index]       
-
-        return refined_bs     
-
-    #==========================================================================
-    def text_preparation(self, strings):
-
-        '''
-        text_preparation(strings)
-
-        Prepares a list of strings for tokenization by converting them to lowercase, 
-        adding spaces around punctuation symbols and delimiting the strings with start
-        and end sequence tokens 
-
-        Keyword arguments:
-            strings (list): A list of strings to be prepared.
-
-        Returns:
-            prepared_strings (list): A list of prepared strings.
-        
-        '''
-        symbols = ['.', ',', ';', ':', '"', '-']       
-        prepared_strings = []
-        for st in strings:
-            string = st.lower()        
-            for sym in symbols:
-                string = string.replace(sym, f' {sym} ')
-            delimited_str = 'START ' + string + ' END'
-            prepared_strings.append(delimited_str)
-
-        return prepared_strings
-    
-    #==========================================================================
-    def text_tokenization(self, text, savepath, matrix_output=False):
-
-        '''
-        text_tokenization(text, savepath, matrix_output=False)
-
-        Tokenizes a list of texts and saves the tokenizer to a specified path.
-
-        Keyword arguments:
-            text (list): A list of texts to be tokenized.
-            savepath (str): The path to save the tokenizer as a JSON file.
-            matrix_output (bool): Whether to return the tokenized texts as a matrix 
-            or a list of sequences. If True, the function returns a matrix of TF-IDF scores. 
-            If False, the function returns a list of sequences of token indices.
-
-        Returns:
-            tokenized_text (list or numpy.ndarray): The tokenized texts in the specified output format.
-        
-        '''
-        self.tokenizer = Tokenizer()
-        self.tokenizer.fit_on_texts(text)
-        tokenized_text = self.tokenizer.texts_to_sequences(text)
-        if matrix_output == True:
-            tokenized_text = self.tokenizer.texts_to_matrix(text, mode = 'tfidf')
-        self.vocabulary = self.tokenizer.word_index
-        self.vocabulary_size = len(self.vocabulary)
-
-        token_directory = os.path.join(savepath, 'Tokenizers')
-        if not os.path.exists(token_directory):
-            os.mkdir(token_directory) 
-
-        tokenizer_json = self.tokenizer.to_json()          
-        json_path = os.path.join(token_directory, 'word_tokenizer.json')
-        with open(json_path, 'w', encoding = 'utf-8') as f:
-            f.write(tokenizer_json)
-
-        return tokenized_text
- 
-    #==========================================================================
-    def sequence_padding(self, sequences, pad_value, pad_length, output = 'array'):
-
-        '''
-        sequence_padding(sequences, pad_value, pad_length, output='array')
-
-        Pads a list of sequences to a specified length with a specified value.
-
-        Keyword arguments:
-            sequences (list): A list of sequences to be padded.
-            pad_value (int): The value to use for padding.
-            pad_length (int): The length to pad the sequences to.
-            output (str): The format of the output. If 'array', the function returns a list of 
-            padded sequences as numpy arrays. If 'string', the function returns a list of padded sequences as strings.
-
-        Returns:
-            padded_text (list): A list of padded sequences in the specified output format.
-        
-        '''
-        padded_text = pad_sequences(sequences, maxlen = pad_length, value = pad_value, 
-                                    dtype = 'int32', padding = 'post')
-        if output == 'string':
-            padded_text_str = []
-            for x in padded_text:
-                x_string = ' '.join(str(i) for i in x)
-                padded_text_str.append(x_string)
-            padded_text = padded_text_str
-          
-        
-        return padded_text    
-    
-    
-    #==========================================================================
-    def model_savefolder(self, path, model_name):
-
-        '''
-        Creates a folder with the current date and time to save the model.
-    
-        Keyword arguments:
-            path (str):       A string containing the path where the folder will be created.
-            model_name (str): A string containing the name of the model.
-    
-        Returns:
-            str: A string containing the path of the folder where the model will be saved.
-        
-        '''        
-        raw_today_datetime = str(datetime.now())
-        truncated_datetime = raw_today_datetime[:-10]
-        today_datetime = truncated_datetime.replace(':', '').replace('-', '').replace(' ', 'H') 
-        model_name = f'{model_name}_{today_datetime}'
-        model_savepath = os.path.join(path, model_name)
-        if not os.path.exists(model_savepath):
-            os.mkdir(model_savepath)               
-            
-        return model_savepath 
-
-    #==========================================================================
-    def load_tokenizer(self, path, filename):  
-
-        json_path = os.path.join(path, f'{filename}.json')
-        with open(json_path, 'r', encoding='utf-8') as f:
-            json_string = f.read()
-            tokenizer = tokenizer_from_json(json_string)
-
-        return tokenizer
     
 # [CALLBACK FOR REAL TIME TRAINING MONITORING]
 #==============================================================================
-#==============================================================================
+# Real time history callback
 #==============================================================================
 class RealTimeHistory(keras.callbacks.Callback):
     
@@ -189,16 +37,15 @@ class RealTimeHistory(keras.callbacks.Callback):
         self.metric_val_hist = []
         self.validation = validation            
     #--------------------------------------------------------------------------
-    def on_epoch_end(self, epoch, logs = {}): 
-
-        if epoch % 1 == 0:            
+    def on_epoch_end(self, epoch, logs = {}):
+        if epoch % 10 == 0:                    
             self.epochs.append(epoch)
-            self.loss_hist.append(logs['loss'])
-            self.metric_hist.append(logs['accuracy'])
+            self.loss_hist.append(logs[list(logs.keys())[0]])
+            self.metric_hist.append(logs[list(logs.keys())[1]])
             if self.validation==True:
-                self.loss_val_hist.append(logs['val_loss'])            
-                self.metric_val_hist.append(logs['val_accuracy'])
-        if epoch % 1 == 0:            
+                self.loss_val_hist.append(logs[list(logs.keys())[2]])            
+                self.metric_val_hist.append(logs[list(logs.keys())[3]])
+        if epoch % 50 == 0:            
             #------------------------------------------------------------------
             fig_path = os.path.join(self.plot_path, 'training_history.jpeg')
             plt.subplot(2, 1, 1)
@@ -207,7 +54,7 @@ class RealTimeHistory(keras.callbacks.Callback):
                 plt.plot(self.epochs, self.loss_val_hist, label = 'validation loss')
                 plt.legend(loc = 'best', fontsize = 8)
             plt.title('Loss plot')
-            plt.ylabel('Binary crossentropy')
+            plt.ylabel('Categorical Crossentropy')
             plt.xlabel('epoch')
             plt.subplot(2, 1, 2)
             plt.plot(self.epochs, self.metric_hist, label = 'train metrics') 
@@ -215,13 +62,30 @@ class RealTimeHistory(keras.callbacks.Callback):
                 plt.plot(self.epochs, self.metric_val_hist, label = 'validation metrics') 
                 plt.legend(loc = 'best', fontsize = 8)
             plt.title('metrics plot')
-            plt.ylabel('Accuracy')
+            plt.ylabel('Categorical accuracy')
             plt.xlabel('epoch')       
             plt.tight_layout()
             plt.savefig(fig_path, bbox_inches = 'tight', format = 'jpeg', dpi = 300)
-            plt.show(block = False)
-            plt.close()      
+            plt.close()    
 
+# [CALLBACK FOR LEARNING RATE SCHEDULER]
+#==============================================================================
+# learning rate scheduler callback
+#==============================================================================
+class LRSchedule(keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, post_warmup_learning_rate, warmup_steps):
+        super().__init__()
+        self.post_warmup_learning_rate = post_warmup_learning_rate
+        self.warmup_steps = warmup_steps
+
+    def __call__(self, step):
+        global_step = tf.cast(step, tf.float32)
+        warmup_steps = tf.cast(self.warmup_steps, tf.float32)
+        warmup_progress = global_step / warmup_steps
+        warmup_learning_rate = self.post_warmup_learning_rate * warmup_progress
+
+        return tf.cond(global_step < warmup_steps, lambda: warmup_learning_rate,
+                       lambda: self.post_warmup_learning_rate)
 
 
 # [CUSTOM DATA GENERATOR FOR TRAINING]
@@ -230,11 +94,12 @@ class RealTimeHistory(keras.callbacks.Callback):
 #==============================================================================
 class DataGenerator(keras.utils.Sequence):
 
-    def __init__(self, dataframe, batch_size=6, image_size=(244, 244), shuffle=True):        
+    def __init__(self, dataframe, batch_size=6, image_size=(244, 244), channels=3, shuffle=True):        
         self.dataframe = dataframe
         self.path_col = 'images_path'        
         self.label_col = 'tokenized_text'
         self.num_of_samples = dataframe.shape[0]
+        self.num_channels = channels
         self.image_size = image_size
         self.batch_size = batch_size  
         self.batch_index = 0              
@@ -274,7 +139,7 @@ class DataGenerator(keras.utils.Sequence):
     #--------------------------------------------------------------------------
     def __images_generation(self, path):
         image = tf.io.read_file(path)
-        image = tf.image.decode_image(image, channels=3)
+        image = tf.image.decode_image(image, channels=self.num_channels)
         resized_image = tf.image.resize(image, self.image_size)
         rgb_image = tf.reverse(resized_image, axis=[-1])
         norm_image = rgb_image / 255.0              
@@ -282,8 +147,7 @@ class DataGenerator(keras.utils.Sequence):
         pp_image = tf.image.random_flip_left_right(pp_image)
         pp_image = tf.image.random_flip_up_down(pp_image)
 
-        return pp_image    
-    
+        return pp_image       
     
     # define method to load labels    
     #--------------------------------------------------------------------------
@@ -300,137 +164,252 @@ class DataGenerator(keras.utils.Sequence):
 
         return self.__getitem__(next_index)
 
-# [CUSTOM ATTENTION MODEL]
+# [IMAGE ENCODER MODEL]
 #==============================================================================
-#==============================================================================
-#==============================================================================   
-class BahdanauAttention(Model):
-    def __init__(self, units):
-        super(BahdanauAttention, self).__init__()
-        self.W1 = layers.Dense(units)
-        self.W2 = layers.Dense(units)
-        self.V = layers.Dense(1)
+# Custom encoder model
+#==============================================================================    
+class ImageEncoder(keras.Model):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = Conv2D(64, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv2 = Conv2D(64, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv3 = Conv2D(128, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv4 = Conv2D(128, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv5 = Conv2D(256, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv6 = Conv2D(256, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv7 = Conv2D(512, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv8 = Conv2D(512, 6, strides=1, padding = 'same', activation = 'relu')
+        self.conv9 = Conv2D(512, 6, strides=1, padding = 'same', activation = 'relu')        
+        self.maxpool = MaxPooling2D((2, 2), padding = 'same')
 
-    def call(self, features, hidden):
+    def call(self, x):        
+        layer = self.conv1(x)          
+        layer = self.conv2(layer)                 
+        layer = self.maxpool(layer) 
+        layer = self.conv3(layer)        
+        layer = self.conv4(layer)                  
+        layer = self.maxpool(layer)
+        layer = self.conv5(layer)        
+        layer = self.conv6(layer)                        
+        layer = self.maxpool(layer)                
+        layer = self.conv7(layer)
+        layer = self.conv8(layer) 
+        layer = self.conv9(layer)                   
+        layer = self.maxpool(layer)       
         
-        hidden_time_axis = tf.expand_dims(hidden, 1)
-        attention_hidden_layer = (tf.nn.tanh(self.W1(features) + self.W2(hidden_time_axis)))
-        score = self.V(attention_hidden_layer)        
-        attention_weights = tf.nn.softmax(score, axis=1)
-        context_vector = attention_weights * features
-        context_vector = tf.reduce_sum(context_vector, axis=1)
+        return layer
 
-        return context_vector, attention_weights
-
-# [CUSTOM ENCODER MODEL]
+# [POSITIONAL EMBEDDING]
 #==============================================================================
+# Custom positional embedding layer
 #==============================================================================
-#============================================================================== 
-class EncoderXREP(Model):
-    def __init__(self, features_size, picture_size):
-        super(EncoderXREP, self).__init__()
-
-        self.conv1 = layers.Conv2D(128, (3, 3), strides=1, activation='relu',input_shape=picture_size)
-        self.maxpool1 = layers.MaxPooling2D((2, 2))
-        self.conv2 = layers.Conv2D(256, (3, 3), strides=1, activation='relu')
-        self.maxpool2 = layers.MaxPooling2D((2, 2))
-        self.conv3 = layers.Conv2D(512, (3, 3), strides=1, activation='relu')
-        self.conv4 = layers.Conv2D(512, (3, 3), strides=1, activation='relu')
-        self.maxpool3 = layers.MaxPooling2D((2, 2))
-        self.flatten = layers.Flatten()
-        self.dense = layers.Dense(features_size, activation='relu')
+class PositionalEmbedding(layers.Layer):
+    def __init__(self, sequence_length, vocab_size, embedding_dims):
+        super().__init__()
+        self.sequence_length = sequence_length
+        self.vocab_size = vocab_size
+        self.embed_dim = embedding_dims
+        self.token_embeddings = Embedding(input_dim=vocab_size, output_dim=embedding_dims)
+        self.position_embeddings = Embedding(input_dim=sequence_length, output_dim=embedding_dims)        
+        self.embed_scale = tf.math.sqrt(tf.cast(embedding_dims, tf.float32))
 
     def call(self, inputs):
-        x = self.conv1(inputs)
-        x = self.maxpool1(x)
-        x = self.conv2(x)
-        x = self.maxpool2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
-        x = self.maxpool3(x)
-        x = self.flatten(x)
-        x = self.dense(x)
+        length = tf.shape(inputs)[-1]
+        positions = tf.range(start=0, limit=length, delta=1)
+        embedded_tokens = self.token_embeddings(inputs)
+        embedded_tokens = embedded_tokens * self.embed_scale
+        embedded_positions = self.position_embeddings(positions)
+        return embedded_tokens + embedded_positions
 
-        return x
-    
-# [CUSTOM DECODER MODEL]
+    def compute_mask(self, inputs, mask=None):
+        return tf.math.not_equal(inputs, 0)
+
+# [TRANSFORMER ENCODER]
 #==============================================================================
-#==============================================================================
+# Custom transformer encoder
 #============================================================================== 
-class DecoderXREP(Model):
-    def __init__(self, embedding_dim, units, vocab_size):
-        super(DecoderXREP, self).__init__()
-        self.units = units
+class TransformerEncoderBlock(layers.Layer):
+    def __init__(self, embedded_dims, num_heads):
+        super().__init__()
+        self.embed_dim = embedded_dims       
+        self.num_heads = num_heads
+        self.attention = layers.MultiHeadAttention(num_heads=num_heads, key_dim=self.embed_dim)
+        self.layernorm1 = layers.LayerNormalization()
+        self.layernorm2 = layers.LayerNormalization()
+        self.dense = layers.Dense(256, activation='relu')
 
-        self.embedding = layers.Embedding(vocab_size, embedding_dim)
-        self.gru = layers.GRU(self.units, return_sequences=True, return_state=True, recurrent_initializer='glorot_uniform')
-        self.fc1 = layers.Dense(self.units)
-        self.fc2 = layers.Dense(vocab_size)
-
-        self.attention = BahdanauAttention(self.units)
-
-    def call(self, x, features, hidden):
-        context_vector, attention_weights = self.attention(features, hidden)    
-        x = self.embedding(x)
-        x = tf.concat([tf.expand_dims(context_vector, 1), x], axis=-1)       
-        output, state = self.gru(x)
-        x = self.fc1(output)
-        x = tf.reshape(x, (-1, x.shape[2]))
-        x = self.fc2(x)
-
-        return x, state, attention_weights
-
-    def reset_state(self, batch_size):
-        return tf.zeros((batch_size, self.units))
-    
-# [CUSTOM MODEL]
-#==============================================================================
-#==============================================================================
-#============================================================================== 
-class ModelXREP(Model):
-    def __init__(self, learning_rate, features_size, picture_size, embedding_dim, units, vocab_size, batch_size):
-        super(ModelXREP, self).__init__()
-        self.encoder = EncoderXREP(features_size, picture_size)
-        self.decoder = DecoderXREP(embedding_dim, units, vocab_size)
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        self.loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
-        self.hidden = self.decoder.reset_state(batch_size=batch_size)
-
-
-    def call(self, img_tensor, target):
-        features = self.encoder(img_tensor)
-        output, self.weight_matrix = self.decoder(target, features, self.hidden)
+    def call(self, inputs, training, mask=None):
+        inputs = self.layernorm1(inputs)
+        inputs = self.dense(inputs)
+        attention_output = self.attention(query=inputs, value=inputs, key=inputs,
+                                          attention_mask=None, training=training)
+        output = self.layernorm2(inputs + attention_output)
 
         return output
 
+# [TRANSFORMER DECODER]
+#==============================================================================
+# Custom transformer decoder
+#============================================================================== 
+class TransformerDecoderBlock(layers.Layer):
+    def __init__(self, sequence_lenght, vocab_size, embedding_dims, num_heads):
+        super().__init__()
+        self.sequence_lenght = sequence_lenght
+        self.vocab_size = vocab_size
+        self.embedding_dims = embedding_dims        
+        self.num_heads = num_heads
+        self.attention1 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
+        self.attention2 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
+        self.ffn_layer1 = Dense(128, activation='relu')
+        self.ffn_layer2 = Dense(self.embedding_dims)
+        self.layernorm1 = layers.LayerNormalization()
+        self.layernorm2 = layers.LayerNormalization()
+        self.layernorm3 = layers.LayerNormalization()
+        self.embedding = PositionalEmbedding(embedding_dims=self.embedding_dims,
+                                             sequence_length=self.sequence_lenght,
+                                             vocab_size=self.vocab_size)
+        self.out = layers.Dense(self.vocab_size, activation='softmax')
+        self.dropout1 = layers.Dropout(0.3)
+        self.dropout2 = layers.Dropout(0.5)
+        self.supports_masking = True
+
+    def call(self, inputs, encoder_outputs, training, mask=None):
+        inputs = self.embedding(inputs)
+        causal_mask = self.get_causal_attention_mask(inputs)
+        if mask is not None:
+            padding_mask = tf.cast(mask[:, :, tf.newaxis], dtype=tf.int32)
+            combined_mask = tf.cast(mask[:, tf.newaxis, :], dtype=tf.int32)
+            combined_mask = tf.minimum(combined_mask, causal_mask)
+
+        attention_output1 = self.attention1(query=inputs, value=inputs, key=inputs,
+                                             attention_mask=combined_mask, training=training)
+        output1 = self.layernorm1(inputs + attention_output1)
+                
+        attention_output2 = self.attention2(query=output1, value=encoder_outputs,
+                                            key=encoder_outputs, attention_mask=padding_mask,
+                                            training=training)
+        output2 = self.layernorm2(output1 + attention_output2)
+
+        ffn_out = self.ffn_layer1(output2)
+        ffn_out = self.dropout1(ffn_out, training=training)
+        ffn_out = self.ffn_layer2(ffn_out)
+        ffn_out = self.layernorm3(ffn_out + output2, training=training)
+        ffn_out = self.dropout2(ffn_out, training=training)
+        preds = self.out(ffn_out)
+
+        return preds
+
+    def get_causal_attention_mask(self, inputs):
+        input_shape = tf.shape(inputs)
+        batch_size, sequence_length = input_shape[0], input_shape[1]
+        i = tf.range(sequence_length)[:, tf.newaxis]
+        j = tf.range(sequence_length)
+        mask = tf.cast(i >= j, dtype='int32')
+        mask = tf.reshape(mask, (1, input_shape[1], input_shape[1]))
+        mult = tf.concat([tf.expand_dims(batch_size, -1), tf.constant([1, 1], dtype=tf.int32)],
+                         axis=0)
+        
+        return tf.tile(mask, mult)
+
+  
+# [XREP CAPTIONING MODEL]
+#==============================================================================
+# Custom captioning model
+#==============================================================================    
+class XREPCaptioningModel(keras.Model):
+    def __init__(self, sequence_lenght, vocab_size, embedding_dims, num_heads):
+        super().__init__()
+        self.sequence_lenght = sequence_lenght
+        self.vocab_size = vocab_size
+        self.embedding_dims = embedding_dims        
+        self.num_heads = num_heads         
+        self.cnn_model = ImageEncoder()
+        self.encoder = TransformerEncoderBlock(embedding_dims, num_heads)
+        self.decoder = TransformerDecoderBlock(sequence_lenght, vocab_size, embedding_dims, num_heads)       
+
+    def calculate_loss(self, y_true, y_pred, mask):
+        loss = self.loss(y_true, y_pred)
+        mask = tf.cast(mask, dtype=loss.dtype)
+        loss *= mask
+        return tf.reduce_sum(loss) / tf.reduce_sum(mask)
+
+    def calculate_accuracy(self, y_true, y_pred, mask):
+        accuracy = tf.equal(y_true, tf.argmax(y_pred, axis=2))
+        accuracy = tf.math.logical_and(mask, accuracy)
+        accuracy = tf.cast(accuracy, dtype=tf.float32)
+        mask = tf.cast(mask, dtype=tf.float32)
+        return tf.reduce_sum(accuracy) / tf.reduce_sum(mask)
+
+    def _compute_caption_loss_and_acc(self, img_embed, batch_seq, training=True):
+        encoder_out = self.encoder(img_embed, training=training)
+        batch_seq_inp = batch_seq[:, :-1]
+        batch_seq_true = batch_seq[:, 1:]
+        mask = tf.math.not_equal(batch_seq_true, 0)
+        batch_seq_pred = self.decoder(batch_seq_inp, encoder_out, training=training, mask=mask)
+        loss = self.calculate_loss(batch_seq_true, batch_seq_pred, mask)
+        acc = self.calculate_accuracy(batch_seq_true, batch_seq_pred, mask)
+        return loss, acc
     
+    def call(self, inputs, training=None, mask=None):        
+        img_embed = self.cnn_model(inputs[0])
+        encoder_out = self.encoder(img_embed, training=training)
+        batch_seq_inp = inputs[1][:, :-1]
+        mask = tf.math.not_equal(inputs[1][:, 1:], 0)
+        batch_seq_pred = self.decoder(batch_seq_inp, encoder_out, training=training, mask=mask)
+
+        return batch_seq_pred
+    
+    def train_step(self, batch_data):
+        batch_img, batch_seq = batch_data
+        batch_loss = 0
+        batch_acc = 0       
+        img_embed = self.cnn_model(batch_img)       
+        with tf.GradientTape() as tape:
+            loss, acc = self._compute_caption_loss_and_acc(img_embed, batch_seq, training=True)
+            batch_loss += loss
+            batch_acc += acc          
+            train_vars = (self.encoder.trainable_variables + self.decoder.trainable_variables)           
+            grads = tape.gradient(loss, train_vars)           
+            self.optimizer.apply_gradients(zip(grads, train_vars))        
+        batch_acc /= float(1)
+        self.loss_tracker.update_state(batch_loss)
+        self.acc_tracker.update_state(batch_acc)
+       
+        return {'loss': self.loss_tracker.result(),
+                'acc': self.acc_tracker.result()}
+
+    def test_step(self, batch_data):
+        batch_img, batch_seq = batch_data
+        batch_loss = 0
+        batch_acc = 0        
+        img_embed = self.cnn_model(batch_img)
+        loss, acc = self._compute_caption_loss_and_acc(img_embed, batch_seq, training=False)
+        batch_loss += loss
+        batch_acc += acc
+        batch_acc /= float(1)
+        self.loss_tracker.update_state(batch_loss)
+        self.acc_tracker.update_state(batch_acc)
+
+        return {'loss': self.loss_tracker.result(),
+                'acc': self.acc_tracker.result()}
+
+    @property
+    def metrics(self):        
+        return [self.loss_tracker, self.acc_tracker] 
+
+
+ 
 
     
-# [TOOLS FOR TRAINING MACHINE LEARNING MODELS]
+# [TRAINING OPTIONS]
 #==============================================================================
+# Custom training operations
 #==============================================================================
-#==============================================================================
-class TrainingTools:
-    
-    """     
-    A class for training operations. Includes many different methods that can 
-    be used in sequence to build a functional
-    preprocessing pipeline.
-      
-    Methods:
-        
-    __init__(df_SC, df_BN): initializes the class with the single component 
-                            and binary mixrture datasets
-    
-    training_logger(path, model_name):     write the training session info in a txt file
-    prevaluation_model(model, n_features): evaluates the model with dummy datasets 
-              
-    """    
-    def __init__(self, device = 'default'): 
-        policy = keras.mixed_precision.Policy('mixed_float16')
-        keras.mixed_precision.set_global_policy(policy)              
-        np.random.seed(42)
-        tf.random.set_seed(42)         
+class ModelTraining:    
+       
+    def __init__(self, device = 'default', seed=42, use_mixed_precision=False):                            
+        np.random.seed(seed)
+        tf.random.set_seed(seed)         
         self.available_devices = tf.config.list_physical_devices()
         print('-------------------------------------------------------------------------------')        
         print('The current devices are available: ')
@@ -442,15 +421,115 @@ class TrainingTools:
         print('-------------------------------------------------------------------------------')
         if device == 'GPU':
             self.physical_devices = tf.config.list_physical_devices('GPU')
-            tf.config.set_visible_devices(self.physical_devices[0], 'GPU')
-            print('GPU is set as active device')
+            if not self.physical_devices:
+                print('No GPU found. Falling back to CPU')
+                tf.config.set_visible_devices([], 'GPU')
+            else:
+                if use_mixed_precision == True:
+                    policy = keras.mixed_precision.Policy('mixed_float16')
+                    keras.mixed_precision.set_global_policy(policy) 
+                tf.config.set_visible_devices(self.physical_devices[0], 'GPU')                 
+                print('GPU is set as active device')
             print('-------------------------------------------------------------------------------')
             print()        
         elif device == 'CPU':
             tf.config.set_visible_devices([], 'GPU')
             print('CPU is set as active device')
             print('-------------------------------------------------------------------------------')
-            print()    
+            print()
+
+    #-------------------------------------------------------------------------- 
+    def model_compiler(self, model, learning_rate, XLA_state=False):
+
+        cross_entropy = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
+        accuracy = keras.metrics.SparseCategoricalAccuracy()  
+        opt = keras.optimizers.Adam(learning_rate=learning_rate)       
+        model.compile(optimizer = opt, loss = cross_entropy, metrics=accuracy,
+                      jit_compile=XLA_state)      
+
+        return model 
+       
+        
+    
+    #-------------------------------------------------------------------------- 
+    def model_parameters(self, parameters_dict, savepath):
+
+        '''
+        Saves the model parameters to a JSON file. The parameters are provided 
+        as a dictionary and are written to a file named 'model_parameters.json' 
+        in the specified directory.
+
+        Keyword arguments:
+            parameters_dict (dict): A dictionary containing the parameters to be saved.
+            savepath (str): The directory path where the parameters will be saved.
+
+        Returns:
+            None       
+
+        '''
+        path = os.path.join(savepath, 'model_parameters.json')      
+        with open(path, 'w') as f:
+            json.dump(parameters_dict, f) 
+          
+    
+    #--------------------------------------------------------------------------
+    def load_pretrained_model(self, path, load_parameters=True):
+
+        '''
+        Load pretrained keras model (in folders) from the specified directory. 
+        If multiple model directories are found, the user is prompted to select one,
+        while if only one model directory is found, that model is loaded directly.
+        If `load_parameters` is True, the function also loads the model parameters 
+        from the target .json file in the same directory. 
+
+        Keyword arguments:
+            path (str): The directory path where the pretrained models are stored.
+            load_parameters (bool, optional): If True, the function also loads the 
+                                              model parameters from a JSON file. 
+                                              Default is True.
+
+        Returns:
+            model (keras.Model): The loaded Keras model.
+
+        '''        
+        model_folders = []
+        for entry in os.scandir(path):
+            if entry.is_dir():
+                model_folders.append(entry.name)
+        if len(model_folders) > 1:
+            model_folders.sort()
+            index_list = [idx + 1 for idx, item in enumerate(model_folders)]     
+            print('Please select a pretrained model:') 
+            print()
+            for i, directory in enumerate(model_folders):
+                print(f'{i + 1} - {directory}')        
+            print()               
+            while True:
+                try:
+                    dir_index = int(input('Type the model index to select it: '))
+                    print()
+                except:
+                    continue
+                break                         
+            while dir_index not in index_list:
+                try:
+                    dir_index = int(input('Input is not valid! Try again: '))
+                    print()
+                except:
+                    continue
+            self.model_path = os.path.join(path, model_folders[dir_index - 1])
+
+        elif len(model_folders) == 1:
+            self.model_path = os.path.join(path, model_folders[0])            
+        
+        model = keras.models.load_model(self.model_path)
+        if load_parameters==True:
+            path = os.path.join(self.model_path, 'model_parameters.json')
+            with open(path, 'r') as f:
+                self.model_configuration = json.load(f)            
+        
+        return model   
+    
     
 
     
