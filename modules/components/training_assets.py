@@ -4,13 +4,15 @@ import json
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
-from keras.layers import Dense,Conv2D, MaxPooling2D
-from keras.layers import Embedding, MultiHeadAttention
+from keras.models import Model
+from keras.layers import Dense, Conv2D, MaxPooling2D
+from keras.layers import Input, Reshape, Embedding, MultiHeadAttention
 from keras import layers 
+from keras.utils import plot_model
 
 # set environment variables
 #------------------------------------------------------------------------------
-os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
+os.environ['TF_GPU_ALLOCATOR']='cuda_malloc_async'
 
     
 # [CALLBACK FOR REAL TIME TRAINING MONITORING]
@@ -49,23 +51,23 @@ class RealTimeHistory(keras.callbacks.Callback):
             #------------------------------------------------------------------
             fig_path = os.path.join(self.plot_path, 'training_history.jpeg')
             plt.subplot(2, 1, 1)
-            plt.plot(self.epochs, self.loss_hist, label = 'training loss')
+            plt.plot(self.epochs, self.loss_hist, label='training loss')
             if self.validation==True:
-                plt.plot(self.epochs, self.loss_val_hist, label = 'validation loss')
-                plt.legend(loc = 'best', fontsize = 8)
+                plt.plot(self.epochs, self.loss_val_hist, label='validation loss')
+                plt.legend(loc='best', fontsize = 8)
             plt.title('Loss plot')
             plt.ylabel('Categorical Crossentropy')
             plt.xlabel('epoch')
             plt.subplot(2, 1, 2)
-            plt.plot(self.epochs, self.metric_hist, label = 'train metrics') 
+            plt.plot(self.epochs, self.metric_hist, label='train metrics') 
             if self.validation==True: 
-                plt.plot(self.epochs, self.metric_val_hist, label = 'validation metrics') 
-                plt.legend(loc = 'best', fontsize = 8)
+                plt.plot(self.epochs, self.metric_val_hist, label='validation metrics') 
+                plt.legend(loc='best', fontsize = 8)
             plt.title('metrics plot')
             plt.ylabel('Categorical accuracy')
             plt.xlabel('epoch')       
             plt.tight_layout()
-            plt.savefig(fig_path, bbox_inches = 'tight', format = 'jpeg', dpi = 300)
+            plt.savefig(fig_path, bbox_inches='tight', format='jpeg', dpi = 300)
             plt.close()    
 
 # [CALLBACK FOR LEARNING RATE SCHEDULER]
@@ -90,17 +92,17 @@ class LRSchedule(keras.optimizers.schedules.LearningRateSchedule):
 
 # [CUSTOM DATA GENERATOR FOR TRAINING]
 #==============================================================================
-#==============================================================================
+# Generate data on the fly to avoid memory burdening
 #==============================================================================
 class DataGenerator(keras.utils.Sequence):
 
     def __init__(self, dataframe, batch_size=6, image_size=(244, 244), channels=3, shuffle=True):        
         self.dataframe = dataframe
-        self.path_col = 'images_path'        
-        self.label_col = 'tokenized_text'
+        self.path_col='images_path'        
+        self.label_col='tokenized_text'
         self.num_of_samples = dataframe.shape[0]
         self.num_channels = channels
-        self.image_size = image_size
+        self.image_size = image_size       
         self.batch_size = batch_size  
         self.batch_index = 0              
         self.shuffle = shuffle
@@ -141,11 +143,11 @@ class DataGenerator(keras.utils.Sequence):
         image = tf.io.read_file(path)
         image = tf.image.decode_image(image, channels=self.num_channels)
         resized_image = tf.image.resize(image, self.image_size)
-        rgb_image = tf.reverse(resized_image, axis=[-1])
-        norm_image = rgb_image / 255.0              
+        if self.num_channels==3:
+            resized_image = tf.reverse(resized_image, axis=[-1])
+        norm_image = resized_image/255.0              
         pp_image = tf.keras.preprocessing.image.random_shift(norm_image, 0.2, 0.3)
-        pp_image = tf.image.random_flip_left_right(pp_image)
-        pp_image = tf.image.random_flip_up_down(pp_image)
+        pp_image = tf.image.random_flip_left_right(pp_image)        
 
         return pp_image       
     
@@ -164,38 +166,46 @@ class DataGenerator(keras.utils.Sequence):
 
         return self.__getitem__(next_index)
 
+  
 # [IMAGE ENCODER MODEL]
 #==============================================================================
 # Custom encoder model
 #==============================================================================    
-class ImageEncoder(keras.Model):
+class ImageEncoder(layers.Layer):
     def __init__(self):
-        super().__init__()
-        self.conv1 = Conv2D(64, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv2 = Conv2D(64, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv3 = Conv2D(128, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv4 = Conv2D(128, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv5 = Conv2D(256, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv6 = Conv2D(256, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv7 = Conv2D(512, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv8 = Conv2D(512, 6, strides=1, padding = 'same', activation = 'relu')
-        self.conv9 = Conv2D(512, 6, strides=1, padding = 'same', activation = 'relu')        
-        self.maxpool = MaxPooling2D((2, 2), padding = 'same')
+        super(ImageEncoder, self).__init__()
+        self.conv1 = Conv2D(64, 6, strides=1, padding='same', 
+                            activation='relu', kernel_initializer='he_uniform')        
+        self.conv2 = Conv2D(128, 6, strides=1, padding='same', 
+                            activation='relu', kernel_initializer='he_uniform')        
+        self.conv3 = Conv2D(256, 6, strides=1, padding='same', 
+                            activation='relu', kernel_initializer='he_uniform')  
+        self.conv4 = Conv2D(256, 6, strides=1, padding='same', 
+                            activation='relu', kernel_initializer='he_uniform')        
+        self.conv5 = Conv2D(512, 6, strides=1, padding='same', 
+                            activation='relu', kernel_initializer='he_uniform') 
+        self.conv6 = Conv2D(512, 6, strides=1, padding='same', 
+                            activation='relu', kernel_initializer='he_uniform')        
+        self.maxpool1 = MaxPooling2D((2, 2), padding='same')
+        self.maxpool2 = MaxPooling2D((2, 2), padding='same')
+        self.maxpool3 = MaxPooling2D((2, 2), padding='same')
+        self.maxpool4 = MaxPooling2D((2, 2), padding='same')
+        self.reshape = Reshape((-1, 512))   
 
+    # implement encoder through call method  
+    #--------------------------------------------------------------------------
     def call(self, x):        
-        layer = self.conv1(x)          
-        layer = self.conv2(layer)                 
-        layer = self.maxpool(layer) 
-        layer = self.conv3(layer)        
-        layer = self.conv4(layer)                  
-        layer = self.maxpool(layer)
-        layer = self.conv5(layer)        
-        layer = self.conv6(layer)                        
-        layer = self.maxpool(layer)                
-        layer = self.conv7(layer)
-        layer = self.conv8(layer) 
-        layer = self.conv9(layer)                   
-        layer = self.maxpool(layer)       
+        layer = self.conv1(x)                  
+        layer = self.maxpool1(layer) 
+        layer = self.conv2(layer)                     
+        layer = self.maxpool2(layer)        
+        layer = self.conv3(layer)  
+        layer = self.conv4(layer)                        
+        layer = self.maxpool3(layer)                
+        layer = self.conv5(layer) 
+        layer = self.conv6(layer)               
+        layer = self.maxpool4(layer) 
+        layer = self.reshape(layer)       
         
         return layer
 
@@ -204,45 +214,57 @@ class ImageEncoder(keras.Model):
 # Custom positional embedding layer
 #==============================================================================
 class PositionalEmbedding(layers.Layer):
-    def __init__(self, sequence_length, vocab_size, embedding_dims):
-        super().__init__()
+    def __init__(self, sequence_length, vocab_size, embedding_dims, mask_zero=True):
+        super(PositionalEmbedding, self).__init__()
         self.sequence_length = sequence_length
         self.vocab_size = vocab_size
         self.embed_dim = embedding_dims
-        self.token_embeddings = Embedding(input_dim=vocab_size, output_dim=embedding_dims)
+        self.mask_zero = mask_zero
+        self.token_embeddings = Embedding(input_dim=vocab_size, output_dim=embedding_dims)        
         self.position_embeddings = Embedding(input_dim=sequence_length, output_dim=embedding_dims)        
-        self.embed_scale = tf.math.sqrt(tf.cast(embedding_dims, tf.float32))
-
+        self.embedding_scale = tf.math.sqrt(tf.cast(embedding_dims, tf.float32))
+        
+    
+    # implement positional embedding through call method  
+    #--------------------------------------------------------------------------
     def call(self, inputs):
         length = tf.shape(inputs)[-1]
         positions = tf.range(start=0, limit=length, delta=1)
         embedded_tokens = self.token_embeddings(inputs)
-        embedded_tokens = embedded_tokens * self.embed_scale
+        embedded_tokens = embedded_tokens * self.embedding_scale
         embedded_positions = self.position_embeddings(positions)
-        return embedded_tokens + embedded_positions
+        full_embedding = embedded_tokens + embedded_positions        
+        if self.mask_zero==True:
+            mask = tf.math.not_equal(inputs, 0)
+            mask = tf.expand_dims(tf.cast(mask, tf.float32), axis=-1)            
+            full_embedding = full_embedding * mask
 
-    def compute_mask(self, inputs, mask=None):
-        return tf.math.not_equal(inputs, 0)
+        return full_embedding
+
+    
 
 # [TRANSFORMER ENCODER]
 #==============================================================================
 # Custom transformer encoder
 #============================================================================== 
 class TransformerEncoderBlock(layers.Layer):
-    def __init__(self, embedded_dims, num_heads):
-        super().__init__()
-        self.embed_dim = embedded_dims       
-        self.num_heads = num_heads
-        self.attention = layers.MultiHeadAttention(num_heads=num_heads, key_dim=self.embed_dim)
+    def __init__(self, embedding_dims, num_heads):
+        super(TransformerEncoderBlock, self).__init__()
+        self.embedding_dims = embedding_dims       
+        self.num_heads = num_heads        
+        self.attention = layers.MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims)
         self.layernorm1 = layers.LayerNormalization()
         self.layernorm2 = layers.LayerNormalization()
-        self.dense = layers.Dense(256, activation='relu')
+        self.dense = layers.Dense(512, activation='relu', kernel_initializer='he_uniform')
 
-    def call(self, inputs, training, mask=None):
+    # implement transformer encoder through call method  
+    #--------------------------------------------------------------------------
+    def call(self, inputs, training):        
         inputs = self.layernorm1(inputs)
-        inputs = self.dense(inputs)
+        inputs = self.dense(inputs)       
         attention_output = self.attention(query=inputs, value=inputs, key=inputs,
                                           attention_mask=None, training=training)
+        
         output = self.layernorm2(inputs + attention_output)
 
         return output
@@ -253,52 +275,51 @@ class TransformerEncoderBlock(layers.Layer):
 #============================================================================== 
 class TransformerDecoderBlock(layers.Layer):
     def __init__(self, sequence_lenght, vocab_size, embedding_dims, num_heads):
-        super().__init__()
+        super(TransformerDecoderBlock, self).__init__()
         self.sequence_lenght = sequence_lenght
         self.vocab_size = vocab_size
         self.embedding_dims = embedding_dims        
-        self.num_heads = num_heads
-        self.attention1 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
-        self.attention2 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
-        self.ffn_layer1 = Dense(128, activation='relu')
-        self.ffn_layer2 = Dense(self.embedding_dims)
+        self.num_heads = num_heads        
+        self.MHA_1 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
+        self.MHA_2 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
+        self.FFN_1 = Dense(512, activation='relu')
+        self.FFN_2 = Dense(self.embedding_dims)
         self.layernorm1 = layers.LayerNormalization()
         self.layernorm2 = layers.LayerNormalization()
-        self.layernorm3 = layers.LayerNormalization()
-        self.embedding = PositionalEmbedding(embedding_dims=self.embedding_dims,
-                                             sequence_length=self.sequence_lenght,
-                                             vocab_size=self.vocab_size)
-        self.out = layers.Dense(self.vocab_size, activation='softmax')
+        self.layernorm3 = layers.LayerNormalization()        
+        self.outmax = layers.Dense(self.vocab_size, activation='softmax')
         self.dropout1 = layers.Dropout(0.3)
-        self.dropout2 = layers.Dropout(0.5)
-        self.supports_masking = True
+        self.dropout2 = layers.Dropout(0.5)  
 
+    # implement transformer decoder through call method  
+    #--------------------------------------------------------------------------
     def call(self, inputs, encoder_outputs, training, mask=None):
-        inputs = self.embedding(inputs)
         causal_mask = self.get_causal_attention_mask(inputs)
-        if mask is not None:
+        padding_mask = None
+        combined_mask = None
+        if mask is not None:            
             padding_mask = tf.cast(mask[:, :, tf.newaxis], dtype=tf.int32)
             combined_mask = tf.cast(mask[:, tf.newaxis, :], dtype=tf.int32)
             combined_mask = tf.minimum(combined_mask, causal_mask)
 
-        attention_output1 = self.attention1(query=inputs, value=inputs, key=inputs,
-                                             attention_mask=combined_mask, training=training)
-        output1 = self.layernorm1(inputs + attention_output1)
-                
-        attention_output2 = self.attention2(query=output1, value=encoder_outputs,
-                                            key=encoder_outputs, attention_mask=padding_mask,
-                                            training=training)
+        attention_output1 = self.MHA_1(query=inputs, value=inputs, key=inputs,
+                                       attention_mask=combined_mask, training=training)
+        output1 = self.layernorm1(inputs + attention_output1)                       
+        attention_output2 = self.MHA_2(query=output1, value=encoder_outputs,
+                                       key=encoder_outputs, attention_mask=padding_mask,
+                                       training=training)
         output2 = self.layernorm2(output1 + attention_output2)
-
-        ffn_out = self.ffn_layer1(output2)
+        ffn_out = self.FFN_1(output2)
         ffn_out = self.dropout1(ffn_out, training=training)
-        ffn_out = self.ffn_layer2(ffn_out)
+        ffn_out = self.FFN_2(ffn_out)
         ffn_out = self.layernorm3(ffn_out + output2, training=training)
         ffn_out = self.dropout2(ffn_out, training=training)
-        preds = self.out(ffn_out)
+        preds = self.outmax(ffn_out)
 
         return preds
 
+    # generate causal attention mask   
+    #--------------------------------------------------------------------------
     def get_causal_attention_mask(self, inputs):
         input_shape = tf.shape(inputs)
         batch_size, sequence_length = input_shape[0], input_shape[1]
@@ -310,96 +331,69 @@ class TransformerDecoderBlock(layers.Layer):
                          axis=0)
         
         return tf.tile(mask, mult)
+ 
 
-  
 # [XREP CAPTIONING MODEL]
 #==============================================================================
 # Custom captioning model
-#==============================================================================    
-class XREPCaptioningModel(keras.Model):
-    def __init__(self, sequence_lenght, vocab_size, embedding_dims, num_heads):
-        super().__init__()
-        self.sequence_lenght = sequence_lenght
-        self.vocab_size = vocab_size
-        self.embedding_dims = embedding_dims        
-        self.num_heads = num_heads         
+#==============================================================================  
+class XREPCaptioningModel(keras.Model):    
+    def __init__(self, pic_shape, sequence_lenght, vocab_size, embedding_dims, num_heads,
+                 learning_rate, XLA_state):   
+        super(XREPCaptioningModel, self).__init__()
+        self.pic_shape = pic_shape
+        self.sequence_lenght = sequence_lenght 
+        self.learning_rate = learning_rate
+        self.XLA_state = XLA_state          
         self.cnn_model = ImageEncoder()
+        self.posembedding = PositionalEmbedding(sequence_lenght, vocab_size, embedding_dims, mask_zero=True)  
         self.encoder = TransformerEncoderBlock(embedding_dims, num_heads)
-        self.decoder = TransformerDecoderBlock(sequence_lenght, vocab_size, embedding_dims, num_heads)       
-
-    def calculate_loss(self, y_true, y_pred, mask):
-        loss = self.loss(y_true, y_pred)
-        mask = tf.cast(mask, dtype=loss.dtype)
-        loss *= mask
-        return tf.reduce_sum(loss) / tf.reduce_sum(mask)
-
-    def calculate_accuracy(self, y_true, y_pred, mask):
-        accuracy = tf.equal(y_true, tf.argmax(y_pred, axis=2))
-        accuracy = tf.math.logical_and(mask, accuracy)
-        accuracy = tf.cast(accuracy, dtype=tf.float32)
-        mask = tf.cast(mask, dtype=tf.float32)
-        return tf.reduce_sum(accuracy) / tf.reduce_sum(mask)
-
-    def _compute_caption_loss_and_acc(self, img_embed, batch_seq, training=True):
-        encoder_out = self.encoder(img_embed, training=training)
-        batch_seq_inp = batch_seq[:, :-1]
-        batch_seq_true = batch_seq[:, 1:]
-        mask = tf.math.not_equal(batch_seq_true, 0)
-        batch_seq_pred = self.decoder(batch_seq_inp, encoder_out, training=training, mask=mask)
-        loss = self.calculate_loss(batch_seq_true, batch_seq_pred, mask)
-        acc = self.calculate_accuracy(batch_seq_true, batch_seq_pred, mask)
-        return loss, acc
-    
-    def call(self, inputs, training=None, mask=None):        
-        img_embed = self.cnn_model(inputs[0])
-        encoder_out = self.encoder(img_embed, training=training)
-        batch_seq_inp = inputs[1][:, :-1]
-        mask = tf.math.not_equal(inputs[1][:, 1:], 0)
-        batch_seq_pred = self.decoder(batch_seq_inp, encoder_out, training=training, mask=mask)
-
-        return batch_seq_pred
-    
-    def train_step(self, batch_data):
-        batch_img, batch_seq = batch_data
-        batch_loss = 0
-        batch_acc = 0       
-        img_embed = self.cnn_model(batch_img)       
-        with tf.GradientTape() as tape:
-            loss, acc = self._compute_caption_loss_and_acc(img_embed, batch_seq, training=True)
-            batch_loss += loss
-            batch_acc += acc          
-            train_vars = (self.encoder.trainable_variables + self.decoder.trainable_variables)           
-            grads = tape.gradient(loss, train_vars)           
-            self.optimizer.apply_gradients(zip(grads, train_vars))        
-        batch_acc /= float(1)
-        self.loss_tracker.update_state(batch_loss)
-        self.acc_tracker.update_state(batch_acc)
-       
-        return {'loss': self.loss_tracker.result(),
-                'acc': self.acc_tracker.result()}
-
-    def test_step(self, batch_data):
-        batch_img, batch_seq = batch_data
-        batch_loss = 0
-        batch_acc = 0        
-        img_embed = self.cnn_model(batch_img)
-        loss, acc = self._compute_caption_loss_and_acc(img_embed, batch_seq, training=False)
-        batch_loss += loss
-        batch_acc += acc
-        batch_acc /= float(1)
-        self.loss_tracker.update_state(batch_loss)
-        self.acc_tracker.update_state(batch_acc)
-
-        return {'loss': self.loss_tracker.result(),
-                'acc': self.acc_tracker.result()}
-
-    @property
-    def metrics(self):        
-        return [self.loss_tracker, self.acc_tracker] 
-
-
+        self.decoder = TransformerDecoderBlock(sequence_lenght, vocab_size, embedding_dims, num_heads)  
  
+    # implement captioning model through call method  
+    #--------------------------------------------------------------------------    
+    def call(self, inputs, training):
+        images, sequences = inputs
+        sequences = self.posembedding(sequences)
+        image_features = self.cnn_model(images)
+        encoder_outputs = self.encoder(image_features, training=training)
+        decoder_outputs = self.decoder(sequences, encoder_outputs,
+                                       training=training, 
+                                       mask=self.posembedding.compute_mask(sequences))
+        
+        return decoder_outputs 
+    
+    # compile the model
+    #--------------------------------------------------------------------------
+    def compile(self):
+        loss = keras.losses.SparseCategoricalCrossentropy(from_logits=False)  
+        metric = keras.metrics.SparseCategoricalAccuracy()  
+        opt = keras.optimizers.Adam(learning_rate=self.learning_rate)          
+        super(XREPCaptioningModel, self).compile(optimizer=opt, loss=loss, metrics=metric, jit_compile=self.XLA_state)
 
+    # print summary
+    #--------------------------------------------------------------------------
+    def summary(self):
+        image_input = Input(shape=self.pic_shape)    
+        seq_input = Input(shape=(self.sequence_lenght, ))
+        model = Model(inputs=[image_input, seq_input], 
+                      outputs = self.call([image_input, seq_input], 
+                      training=False))
+        
+        model.summary()
+
+    # plot model as 2D schematics
+    #--------------------------------------------------------------------------
+    def plot_model(self, model_savepath):
+        image_input = Input(shape=self.pic_shape)    
+        seq_input = Input(shape=(self.sequence_lenght, ))
+        model = Model(inputs=[image_input, seq_input], 
+                      outputs = self.call([image_input, seq_input], 
+                      training=False))
+        plot_path = os.path.join(model_savepath, 'XREP_scheme.png')       
+        plot_model(model, to_file = plot_path, show_shapes = True, 
+               show_layer_names = True, show_layer_activations = True, 
+               expand_nested = True, rankdir='TB', dpi = 400) 
     
 # [TRAINING OPTIONS]
 #==============================================================================
@@ -407,7 +401,7 @@ class XREPCaptioningModel(keras.Model):
 #==============================================================================
 class ModelTraining:    
        
-    def __init__(self, device = 'default', seed=42, use_mixed_precision=False):                            
+    def __init__(self, device='default', seed=42, use_mixed_precision=False):                            
         np.random.seed(seed)
         tf.random.set_seed(seed)         
         self.available_devices = tf.config.list_physical_devices()
@@ -436,20 +430,8 @@ class ModelTraining:
             tf.config.set_visible_devices([], 'GPU')
             print('CPU is set as active device')
             print('-------------------------------------------------------------------------------')
-            print()
-
-    #-------------------------------------------------------------------------- 
-    def model_compiler(self, model, learning_rate, XLA_state=False):
-
-        cross_entropy = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
-        accuracy = keras.metrics.SparseCategoricalAccuracy()  
-        opt = keras.optimizers.Adam(learning_rate=learning_rate)       
-        model.compile(optimizer = opt, loss = cross_entropy, metrics=accuracy,
-                      jit_compile=XLA_state)      
-
-        return model 
-       
-        
+            print()        
+   
     
     #-------------------------------------------------------------------------- 
     def model_parameters(self, parameters_dict, savepath):

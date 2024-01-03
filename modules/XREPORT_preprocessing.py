@@ -15,7 +15,7 @@ if __name__ == '__main__':
 
 # import modules and classes
 #------------------------------------------------------------------------------
-from modules.components.data_classes import PreProcessing, XREPDataSet
+from modules.components.data_assets import PreProcessing, XREPDataSet
 import modules.global_variables as GlobVar
 import configurations as cnf
 
@@ -73,12 +73,14 @@ tokenized_test_text = preprocessor.text_tokenization(test_text, GlobVar.data_pat
 print('''STEP 2 ----> Sequence padding to equalize sequence length
 ''')
 vocabulary_size = preprocessor.vocabulary_size
-pad_length = max([len(x) for x in total_text])
+pad_length = max([len(x.split()) for x in total_text])
 
 # perform padding of sequences
 #------------------------------------------------------------------------------
-padded_train_text = preprocessor.sequence_padding(tokenized_train_text, cnf.pad_value, pad_length, output = 'string')
-padded_test_text = preprocessor.sequence_padding(tokenized_test_text, cnf.pad_value, pad_length, output = 'string')
+padded_train_text = preprocessor.sequence_padding(tokenized_train_text, cnf.pad_value, 
+                                                  pad_length, output = 'string')
+padded_test_text = preprocessor.sequence_padding(tokenized_test_text, cnf.pad_value, 
+                                                 pad_length, output = 'string')
 train_data['tokenized_text'] = padded_train_text
 test_data['tokenized_text'] = padded_test_text
 

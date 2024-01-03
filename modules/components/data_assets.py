@@ -1,28 +1,17 @@
 import os
 from datetime import datetime
-from tensorflow.keras.preprocessing.text import Tokenizer,tokenizer_from_json
+from tensorflow.keras.preprocessing.text import Tokenizer, tokenizer_from_json
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tqdm import tqdm
 tqdm.pandas()
 
 
 
-# ...
+# [CONSOLE USER OPERATIONS]
 #==============================================================================
+# Perform operations to control the console
 #==============================================================================
-#==============================================================================
-class UserOperations:
-    
-    '''    
-    A class for user operations such as interactions with the console, directories 
-    and files cleaning and other maintenance operations.
-      
-    Methods:
-        
-    menu_selection(menu):         console menu management
-    clear_all_files(folder_path): cleaning files and directories 
-   
-    '''
+class UserOperations:   
     
     #--------------------------------------------------------------------------
     def menu_selection(self, menu):
@@ -40,19 +29,16 @@ class UserOperations:
         Returns:            
             op_sel (int): The selected option number.
         
-        '''
-        
+        '''        
         indexes = [idx + 1 for idx, val in enumerate(menu)]
         for key, value in menu.items():
-            print('{0} - {1}'.format(key, value))            
-        
+            print(f'{key} - {value}')       
         print()
         while True:
             try:
                 op_sel = int(input('Select the desired operation: '))
             except:
-                continue      
-            
+                continue           
             while op_sel not in indexes:
                 try:
                     op_sel = int(input('Input is not valid, please select a valid option: '))
@@ -66,11 +52,9 @@ class UserOperations:
     
 # [PREPROCESSING PIPELINE]
 #==============================================================================
+# Preprocess data
 #==============================================================================
-#==============================================================================
-class PreProcessing:    
-      
-        
+class PreProcessing:      
         
 
     #--------------------------------------------------------------------------
@@ -90,12 +74,12 @@ class PreProcessing:
             processed_strings (list): A list of prepared strings.
         
         '''
-        symbols = ['.', ',', ';', ':', '"', '-']       
+        symbols = ['.', ',', ';', ':', '"', '-', '=', '/']       
         processed_strings = []
         for st in strings:
             string = st.lower()        
-            for sym in symbols:
-                string = string.replace(sym, f' {sym} ')
+            for sb in symbols:
+                string = string.replace(sb, '')
             delimited_str = '[START] ' + string + ' [END]'
             processed_strings.append(delimited_str)
 

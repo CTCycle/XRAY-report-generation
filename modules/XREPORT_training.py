@@ -17,8 +17,8 @@ if __name__ == '__main__':
 
 # import modules and classes
 #------------------------------------------------------------------------------    
-from modules.components.data_classes import XREPDataSet, PreProcessing
-from modules.components.training_classes import ModelTraining, RealTimeHistory, DataGenerator, XREPCaptioningModel
+from modules.components.data_assets import XREPDataSet, PreProcessing
+from modules.components.training_assets import ModelTraining, RealTimeHistory, DataGenerator, XREPCaptioningModel
 import modules.global_variables as GlobVar
 import configurations as cnf
 
@@ -58,6 +58,7 @@ tokenizer_path = os.path.join(GlobVar.data_path, 'Tokenizers')
 tokenizer = preprocessor.load_tokenizer(tokenizer_path, 'word_tokenizer')
 vocab_size = len(tokenizer.word_index)
 
+
 # [ESTABLISH DATA GENERATOR]
 #==============================================================================
 # module for the selection of different operations
@@ -65,8 +66,8 @@ vocab_size = len(tokenizer.word_index)
 
 # transform string sequence into list of elements
 #------------------------------------------------------------------------------
-train_datagen = DataGenerator(df_train, cnf.batch_size, cnf.picture_size, shuffle=True)
-test_datagen = DataGenerator(df_test, cnf.batch_size, cnf.picture_size, shuffle=True)
+train_datagen = DataGenerator(df_train, cnf.batch_size, cnf.picture_size, cnf.num_channels, shuffle=True)
+test_datagen = DataGenerator(df_test, cnf.batch_size, cnf.picture_size, cnf.num_channels, shuffle=True)
 
 # define the output signature of the generator using tf.TensorSpec
 #------------------------------------------------------------------------------
@@ -105,22 +106,18 @@ Caption length:          {caption_shape[1]}
 #==============================================================================
 model_savepath = preprocessor.model_savefolder(GlobVar.model_path, 'XREP')
 trainworker = ModelTraining(device = cnf.training_device)
-modelframe = XREPCaptioningModel(caption_shape[1], vocab_size, cnf.embedding_dims, 
-                                 cnf.num_heads)
 
-model = trainworker.model_compiler(modelframe, cnf.learning_rate, XLA_state=cnf.XLA_acceleration)
-
-# build the model passing dummy data
+# initialize, compile and print the summary of the captioning model
 #------------------------------------------------------------------------------
-example_model = model(x_batch)
+caption_model = XREPCaptioningModel(cnf.image_shape, caption_shape[1], vocab_size, cnf.embedding_dims,
+                                    cnf.num_heads, cnf.learning_rate, cnf.XLA_acceleration)
+caption_model.compile()
+caption_model.summary()
 
 # generate graphviz plot fo the model layout
 #------------------------------------------------------------------------------
 if cnf.generate_model_graph == True:
-    plot_path = os.path.join(model_savepath, 'XREP_scheme.png')       
-    plot_model(example_model, to_file = plot_path, show_shapes = True, 
-               show_layer_names = True, show_layer_activations = True, 
-               expand_nested = True, rankdir = 'TB', dpi = 400)
+    caption_model.plot_model(model_savepath)
     
 # [TRAINING XREPORT MODEL]
 #==============================================================================
@@ -147,12 +144,10 @@ else:
 print(f'''Start model training for {cnf.epochs} epochs and batch size of {cnf.batch_size}
        ''')
 
-steps_per_epoch = int(df_train.shape[0]/cnf.batch_size)
-training = model.fit(train_dataset, steps_per_epoch=steps_per_epoch,
-                     validation_data = test_dataset, epochs = cnf.epochs, 
-                     callbacks = callbacks, workers = 6, use_multiprocessing=True)                          
+training = caption_model.fit(train_dataset, validation_data=test_dataset, epochs=cnf.epochs, 
+                             callbacks=callbacks, workers=6, use_multiprocessing=True)                          
 
-model.save(model_savepath)
+caption_model.save(model_savepath)
 
 # save model data and model parameters in txt files
 #------------------------------------------------------------------------------
@@ -164,25 +159,6 @@ parameters = {'Model name' : 'XREP',
               'Learning rate' : cnf.learning_rate,
               'Epochs' : cnf.epochs}
 
-model.save(model_savepath)
 trainworker.model_parameters(parameters, model_savepath)
-
-# [FEXT MODEL VALIDATION]
-#==============================================================================
-# Training the LSTM model using the functions specified in the designated class.
-# The model is saved using keras saving procedures in order to store weights and
-# other information
-#==============================================================================
-# validator = ModelValidation(FEXT_model)
-# num_val_images = 10
-# validation_subset = dataset_XRAYREP.sample(n=num_val_images)
-
-# # extract batch of real and reconstructed images and perform visual validation
-# #------------------------------------------------------------------------------
-# val_generator = trainworker.FeatEXT_generator(validation_subset, 'images_path', GlobVar.FEXT_pic_size[:-1],
-#                                               num_val_images, transform=False, shuffle=False)
-# original_images, y_val = val_generator.next()
-# recostructed_images = list(FEXT_model.predict(original_images))
-# validator.FeatEXT_validation(original_images, recostructed_images, model_savepath)
 
 
