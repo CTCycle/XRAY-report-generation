@@ -39,7 +39,8 @@ while True:
         import modules.XREPORT_training
         del sys.modules['modules.XREPORT_training']
     elif op_sel == 3:
-        break
+        import modules.XREPORT_generator
+        del sys.modules['modules.XREPORT_generator']
     elif op_sel == 4:
         break
 

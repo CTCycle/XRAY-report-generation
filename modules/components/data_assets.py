@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+import tensorflow as tf
 from tensorflow.keras.preprocessing.text import Tokenizer, tokenizer_from_json
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tqdm import tqdm
@@ -48,13 +49,45 @@ class UserOperations:
         
         return op_sel    
     
-               
+
+
     
 # [PREPROCESSING PIPELINE]
 #==============================================================================
 # Preprocess data
 #==============================================================================
-class PreProcessing:      
+class PreProcessing: 
+
+
+    #--------------------------------------------------------------------------
+    def images_pathfinder(self, path, dataframe, id_col):
+
+        images_paths = {}
+        for pic in os.listdir(path):
+            pic_name = pic.split('.')[0]
+            pic_path = os.path.join(path, pic)                        
+            path_pair = {pic_name : pic_path}        
+            images_paths.update(path_pair)
+        
+        dataframe['images_path'] = dataframe[id_col].map(images_paths)
+        dataframe = dataframe.dropna(subset=['images_path']).reset_index(drop = True)
+
+        return dataframe 
+
+    #--------------------------------------------------------------------------
+    def load_images(self, paths, num_channels, image_size):
+        
+        images = []
+        for pt in tqdm(paths):
+            image = tf.io.read_file(pt)
+            image = tf.image.decode_image(image, channels=num_channels)
+            image = tf.image.resize(image, image_size)
+            if num_channels==3:
+                image = tf.reverse(image, axis=[-1])
+            image = image/255.0 
+            images.append(image) 
+
+        return images    
         
 
     #--------------------------------------------------------------------------
@@ -186,45 +219,7 @@ class PreProcessing:
 
         return tokenizer
 
-# define the class for inspection of the input folder and generation of files list.
-#==============================================================================
-#==============================================================================
-#==============================================================================
-class XREPDataSet:
-    
-   
-    
-    #--------------------------------------------------------------------------
-    def images_pathfinder(self, path, dataframe, id_col):
 
-        images_paths = {}
-        for pic in os.listdir(path):
-            pic_name = pic.split('.')[0]
-            pic_path = os.path.join(path, pic)                        
-            path_pair = {pic_name : pic_path}        
-            images_paths.update(path_pair)
-        
-        dataframe['images_path'] = dataframe[id_col].map(images_paths)
-        dataframe = dataframe.dropna(subset=['images_path']).reset_index(drop = True)
-
-        return dataframe
-    
-# define the class for inspection of the input folder and generation of files list.
-#==============================================================================
-#==============================================================================
-#==============================================================================
-class DataStorage: 
-
-    #--------------------------------------------------------------------------
-    def JSON_serializer(self, object, filename, path, mode='SAVE'):
-
-        if mode == 'SAVE':
-            object_json = object.to_json()          
-            json_path = os.path.join(path, f'{filename}.json')
-            with open(json_path, 'w', encoding = 'utf-8') as f:
-                f.write(object_json)
-        elif mode == 'LOAD':
-            pass
 
 
 

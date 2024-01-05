@@ -15,7 +15,7 @@ if __name__ == '__main__':
 
 # import modules and classes
 #------------------------------------------------------------------------------
-from modules.components.data_assets import PreProcessing, XREPDataSet
+from modules.components.data_assets import PreProcessing
 import modules.global_variables as GlobVar
 import configurations as cnf
 
@@ -40,8 +40,8 @@ The preprocessing procedure comprises the tokenization and padding on the text s
 
 # select only a part of the main dataset
 #------------------------------------------------------------------------------
-dataworker = XREPDataSet()
-dataset = dataworker.images_pathfinder(GlobVar.images_path, dataset, 'id')
+preprocessor = PreProcessing()
+dataset = preprocessor.images_pathfinder(GlobVar.images_path, dataset, 'id')
 dataset = dataset.sample(n=cnf.num_samples)
 
 # split data into train and test dataset and start preprocessor

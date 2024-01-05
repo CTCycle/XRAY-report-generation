@@ -9,6 +9,7 @@ from keras.layers import Dense, Conv2D, MaxPooling2D
 from keras.layers import Input, Reshape, Embedding, MultiHeadAttention
 from keras import layers 
 from keras.utils import plot_model
+from tqdm import tqdm
 
 # set environment variables
 #------------------------------------------------------------------------------
@@ -240,6 +241,12 @@ class PositionalEmbedding(layers.Layer):
             full_embedding = full_embedding * mask
 
         return full_embedding
+    
+    # compute the mask for padded sequences  
+    #--------------------------------------------------------------------------
+    def compute_mask(self, inputs, mask=None):
+
+        return tf.math.not_equal(inputs, 0)
 
     
 
@@ -274,12 +281,12 @@ class TransformerEncoderBlock(layers.Layer):
 # Custom transformer decoder
 #============================================================================== 
 class TransformerDecoderBlock(layers.Layer):
-    def __init__(self, sequence_lenght, vocab_size, embedding_dims, num_heads):
+    def __init__(self, sequence_length, vocab_size, embedding_dims, num_heads):
         super(TransformerDecoderBlock, self).__init__()
-        self.sequence_lenght = sequence_lenght
+        self.sequence_length = sequence_length
         self.vocab_size = vocab_size
         self.embedding_dims = embedding_dims        
-        self.num_heads = num_heads        
+        self.num_heads = num_heads          
         self.MHA_1 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
         self.MHA_2 = MultiHeadAttention(num_heads=num_heads, key_dim=self.embedding_dims, dropout=0.1)
         self.FFN_1 = Dense(512, activation='relu')
@@ -293,15 +300,18 @@ class TransformerDecoderBlock(layers.Layer):
 
     # implement transformer decoder through call method  
     #--------------------------------------------------------------------------
-    def call(self, inputs, encoder_outputs, training, mask=None):
+    def call(self, inputs, encoder_outputs, training, mask):
+        
         causal_mask = self.get_causal_attention_mask(inputs)
+        
         padding_mask = None
         combined_mask = None
-        if mask is not None:            
+
+        if mask is not None:
             padding_mask = tf.cast(mask[:, :, tf.newaxis], dtype=tf.int32)
             combined_mask = tf.cast(mask[:, tf.newaxis, :], dtype=tf.int32)
-            combined_mask = tf.minimum(combined_mask, causal_mask)
-
+            combined_mask = tf.minimum(combined_mask, causal_mask)            
+        
         attention_output1 = self.MHA_1(query=inputs, value=inputs, key=inputs,
                                        attention_mask=combined_mask, training=training)
         output1 = self.layernorm1(inputs + attention_output1)                       
@@ -314,6 +324,7 @@ class TransformerDecoderBlock(layers.Layer):
         ffn_out = self.FFN_2(ffn_out)
         ffn_out = self.layernorm3(ffn_out + output2, training=training)
         ffn_out = self.dropout2(ffn_out, training=training)
+        print(ffn_out)
         preds = self.outmax(ffn_out)
 
         return preds
@@ -325,12 +336,14 @@ class TransformerDecoderBlock(layers.Layer):
         batch_size, sequence_length = input_shape[0], input_shape[1]
         i = tf.range(sequence_length)[:, tf.newaxis]
         j = tf.range(sequence_length)
-        mask = tf.cast(i >= j, dtype='int32')
+        mask = tf.cast(i >= j, dtype="int32")
         mask = tf.reshape(mask, (1, input_shape[1], input_shape[1]))
         mult = tf.concat([tf.expand_dims(batch_size, -1), tf.constant([1, 1], dtype=tf.int32)],
-                         axis=0)
+                          axis=0)
         
         return tf.tile(mask, mult)
+    
+
  
 
 # [XREP CAPTIONING MODEL]
@@ -338,30 +351,114 @@ class TransformerDecoderBlock(layers.Layer):
 # Custom captioning model
 #==============================================================================  
 class XREPCaptioningModel(keras.Model):    
-    def __init__(self, pic_shape, sequence_lenght, vocab_size, embedding_dims, num_heads,
+    def __init__(self, pic_shape, sequence_length, vocab_size, embedding_dims, num_heads,
                  learning_rate, XLA_state):   
         super(XREPCaptioningModel, self).__init__()
+        self.loss_tracker = keras.metrics.Mean(name="loss")
+        self.acc_tracker = keras.metrics.Mean(name="accuracy")
         self.pic_shape = pic_shape
-        self.sequence_lenght = sequence_lenght 
+        self.sequence_length = sequence_length 
         self.learning_rate = learning_rate
-        self.XLA_state = XLA_state          
-        self.cnn_model = ImageEncoder()
-        self.posembedding = PositionalEmbedding(sequence_lenght, vocab_size, embedding_dims, mask_zero=True)  
+        self.XLA_state = XLA_state 
+        self.posembedding = PositionalEmbedding(sequence_length, vocab_size, embedding_dims, mask_zero=True)                 
+        self.image_encoder = ImageEncoder()        
         self.encoder = TransformerEncoderBlock(embedding_dims, num_heads)
-        self.decoder = TransformerDecoderBlock(sequence_lenght, vocab_size, embedding_dims, num_heads)  
+        self.decoder = TransformerDecoderBlock(sequence_length, vocab_size, embedding_dims, num_heads) 
+
+    # calculate loss
+    #--------------------------------------------------------------------------
+    def calculate_loss(self, y_true, y_pred, mask):
+        loss = self.loss(y_true, y_pred)
+        mask = tf.cast(mask, dtype=loss.dtype)
+        loss *= mask
+        return tf.reduce_sum(loss) / tf.reduce_sum(mask) 
+    
+    # calculate accuracy
+    #--------------------------------------------------------------------------
+    def calculate_accuracy(self, y_true, y_pred, mask):
+        accuracy = tf.equal(y_true, tf.argmax(y_pred, axis=2))
+        accuracy = tf.math.logical_and(mask, accuracy)
+        accuracy = tf.cast(accuracy, dtype=tf.float32)
+        mask = tf.cast(mask, dtype=tf.float32)
+
+        return tf.reduce_sum(accuracy) / tf.reduce_sum(mask)
+
+    # calculate the caption loss and accuracy
+    #--------------------------------------------------------------------------
+    def _compute_caption_loss_and_acc(self, img_embed, batch_seq, training=True):
+        encoder_out = self.encoder(img_embed, training=training)
+        batch_seq_inp = batch_seq[:, :-1]
+        batch_seq_true = batch_seq[:, 1:]
+        mask = tf.math.not_equal(batch_seq_true, 0)
+        batch_seq_pred = self.decoder(batch_seq_inp, encoder_out, training=training, mask=mask)
+        loss = self.calculate_loss(batch_seq_true, batch_seq_pred, mask)
+        acc = self.calculate_accuracy(batch_seq_true, batch_seq_pred, mask)
+
+        return loss, acc
+    
+    # define train step
+    #--------------------------------------------------------------------------
+    def train_step(self, batch_data):
+        batch_img, batch_seq = batch_data
+        batch_loss = 0
+        batch_acc = 0       
+        img_embed = self.image_encoder(batch_img)
+        with tf.GradientTape() as tape:
+            loss, acc = self._compute_caption_loss_and_acc(img_embed, batch_seq, training=True)
+            batch_loss += loss
+            batch_acc += acc           
+            train_vars = (self.encoder.trainable_variables + self.decoder.trainable_variables)           
+            grads = tape.gradient(loss, train_vars)
+            self.optimizer.apply_gradients(zip(grads, train_vars))      
+        
+        self.loss_tracker.update_state(batch_loss)
+        self.acc_tracker.update_state(batch_acc)
+
+        return {"loss": self.loss_tracker.result(),
+                "acc": self.acc_tracker.result()}
+
+    # define test step
+    #--------------------------------------------------------------------------
+    def test_step(self, batch_data):
+        batch_img, batch_seq = batch_data
+        batch_loss = 0
+        batch_acc = 0
+        img_embed = self.image_encoder(batch_img)
+        with tf.GradientTape() as tape:
+            loss, acc = self._compute_caption_loss_and_acc(img_embed, batch_seq, training=False)
+            batch_loss += loss
+            batch_acc += acc            
+       
+        self.loss_tracker.update_state(batch_loss)
+        self.acc_tracker.update_state(batch_acc)
+        
+        return {"loss": self.loss_tracker.result(),
+                "acc": self.acc_tracker.result()}
+
+    @property
+    def metrics(self):        
+        return [self.loss_tracker, self.acc_tracker]
  
     # implement captioning model through call method  
     #--------------------------------------------------------------------------    
     def call(self, inputs, training):
-        images, sequences = inputs
+        images, sequences = inputs 
+        mask = tf.math.not_equal(sequences, 0)      
+        image_features = self.image_encoder(images)
         sequences = self.posembedding(sequences)
-        image_features = self.cnn_model(images)
-        encoder_outputs = self.encoder(image_features, training=training)
-        decoder_outputs = self.decoder(sequences, encoder_outputs,
-                                       training=training, 
-                                       mask=self.posembedding.compute_mask(sequences))
+        encoder = self.encoder(image_features, training)
+        decoder = self.decoder(sequences, encoder, training, mask)
+
+        return decoder
         
-        return decoder_outputs 
+    
+    # track metrics and losses  
+    #--------------------------------------------------------------------------
+    @property
+    def metrics(self):
+        return [self.loss_tracker, self.acc_tracker]
+        
+        
     
     # compile the model
     #--------------------------------------------------------------------------
@@ -375,7 +472,7 @@ class XREPCaptioningModel(keras.Model):
     #--------------------------------------------------------------------------
     def summary(self):
         image_input = Input(shape=self.pic_shape)    
-        seq_input = Input(shape=(self.sequence_lenght, ))
+        seq_input = Input(shape=(self.sequence_length, ))
         model = Model(inputs=[image_input, seq_input], 
                       outputs = self.call([image_input, seq_input], 
                       training=False))
@@ -386,15 +483,23 @@ class XREPCaptioningModel(keras.Model):
     #--------------------------------------------------------------------------
     def plot_model(self, model_savepath):
         image_input = Input(shape=self.pic_shape)    
-        seq_input = Input(shape=(self.sequence_lenght, ))
+        seq_input = Input(shape=(self.sequence_length, ))
         model = Model(inputs=[image_input, seq_input], 
                       outputs = self.call([image_input, seq_input], 
                       training=False))
         plot_path = os.path.join(model_savepath, 'XREP_scheme.png')       
         plot_model(model, to_file = plot_path, show_shapes = True, 
                show_layer_names = True, show_layer_activations = True, 
-               expand_nested = True, rankdir='TB', dpi = 400) 
+               expand_nested = True, rankdir='TB', dpi = 400)  
+
+
+
     
+
+   
+
+    
+
 # [TRAINING OPTIONS]
 #==============================================================================
 # Custom training operations
@@ -431,7 +536,6 @@ class ModelTraining:
             print('CPU is set as active device')
             print('-------------------------------------------------------------------------------')
             print()        
-   
     
     #-------------------------------------------------------------------------- 
     def model_parameters(self, parameters_dict, savepath):
@@ -451,9 +555,16 @@ class ModelTraining:
         '''
         path = os.path.join(savepath, 'model_parameters.json')      
         with open(path, 'w') as f:
-            json.dump(parameters_dict, f) 
-          
+            json.dump(parameters_dict, f)         
     
+    
+    
+# [TOOLKIT TO USE THE PRETRAINED MODEL]
+#==============================================================================
+# Custom training operations
+#==============================================================================
+class InferenceTools:
+
     #--------------------------------------------------------------------------
     def load_pretrained_model(self, path, load_parameters=True):
 
@@ -511,13 +622,46 @@ class ModelTraining:
                 self.model_configuration = json.load(f)            
         
         return model   
-    
-    
+
+    #--------------------------------------------------------------------------    
+    def generate_caption(self, model, paths, num_channels, image_size,
+                         max_length):
+        
+        for pt in tqdm(paths):
+            image = tf.io.read_file(pt)
+            image = tf.image.decode_image(image, channels=num_channels)
+            image = tf.image.resize(image, image_size)
+            if self.num_channels==3:
+                image = tf.reverse(image, axis=[-1])
+            image = image/255.0  
+
+            input_image = tf.expand_dims(image, 0)
+            features = model.image_encoder(input_image)            
+            encoded_img = model.encoder(features, training=False)
+
+            decoded_caption = '[START]'
+            for i in range(max_length):
+                tokenized_caption = vectorization([decoded_caption])[:, :-1]
+                mask = tf.math.not_equal(tokenized_caption, 0)
+                predictions = caption_model.decoder(
+                    tokenized_caption, encoded_img, training=False, mask=mask
+                )
+                sampled_token_index = np.argmax(predictions[0, i, :])
+                sampled_token = index_lookup[sampled_token_index]
+                if sampled_token == "<end>":
+                    break
+                decoded_caption += " " + sampled_token
+
+        decoded_caption = decoded_caption.replace("<start> ", "")
+        decoded_caption = decoded_caption.replace(" <end>", "").strip()
+        print("Predicted Caption: ", decoded_caption)
+
+
 
     
 # [VALIDATION OF PRETRAINED MODELS]
 #==============================================================================
-#==============================================================================
+# Validation and evaluation of model performances
 #==============================================================================
 class ModelValidation:
 

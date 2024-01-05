@@ -17,7 +17,7 @@ if __name__ == '__main__':
 
 # import modules and classes
 #------------------------------------------------------------------------------    
-from modules.components.data_assets import XREPDataSet, PreProcessing
+from modules.components.data_assets import PreProcessing
 from modules.components.training_assets import ModelTraining, RealTimeHistory, DataGenerator, XREPCaptioningModel
 import modules.global_variables as GlobVar
 import configurations as cnf
@@ -34,7 +34,6 @@ XRAYREP training
 XRAYREP model will be trained on the preprocessed data...
 ''')
 
-dataworker = XREPDataSet()
 file_loc = os.path.join(GlobVar.data_path, 'XREP_train.csv') 
 df_train = pd.read_csv(file_loc, encoding = 'utf-8', sep = (';' or ',' or ' ' or  ':'), low_memory=False)
 file_loc = os.path.join(GlobVar.data_path, 'XREP_test.csv') 
@@ -42,15 +41,16 @@ df_test = pd.read_csv(file_loc, encoding = 'utf-8', sep = (';' or ',' or ' ' or 
 
 # assign paths to images in the dataset
 #------------------------------------------------------------------------------
-df_train = dataworker.images_pathfinder(GlobVar.images_path, df_train, 'id')
-df_test = dataworker.images_pathfinder(GlobVar.images_path, df_test, 'id')
+preprocessor = PreProcessing()
+df_train = preprocessor.images_pathfinder(GlobVar.images_path, df_train, 'id')
+df_test = preprocessor.images_pathfinder(GlobVar.images_path, df_test, 'id')
 
 # [DEFINE ACTUAL BATCH SIZE AND LOAD TOKENIZERS]
 #==============================================================================
 # Load the csv with data and transform the tokenized text column to convert the
 # strings into a series of integers
 #==============================================================================
-preprocessor = PreProcessing()
+
 
 # load tokenizer to get padding length and vocabulary size
 #------------------------------------------------------------------------------
