@@ -195,7 +195,7 @@ class ImageEncoder(layers.Layer):
 
     # implement encoder through call method  
     #--------------------------------------------------------------------------
-    def call(self, x):        
+    def call(self, x):              
         layer = self.conv1(x)                  
         layer = self.maxpool1(layer) 
         layer = self.conv2(layer)                     
@@ -323,8 +323,7 @@ class TransformerDecoderBlock(layers.Layer):
         ffn_out = self.dropout1(ffn_out, training=training)
         ffn_out = self.FFN_2(ffn_out)
         ffn_out = self.layernorm3(ffn_out + output2, training=training)
-        ffn_out = self.dropout2(ffn_out, training=training)
-        print(ffn_out)
+        ffn_out = self.dropout2(ffn_out, training=training)        
         preds = self.outmax(ffn_out)
 
         return preds
@@ -399,9 +398,11 @@ class XREPCaptioningModel(keras.Model):
     # define train step
     #--------------------------------------------------------------------------
     def train_step(self, batch_data):
-        batch_img, batch_seq = batch_data
+        X_batch, Y_batch = batch_data
+        print(X_batch[0], X_batch[1])
         batch_loss = 0
-        batch_acc = 0       
+        batch_acc = 0    
+        
         img_embed = self.image_encoder(batch_img)
         with tf.GradientTape() as tape:
             loss, acc = self._compute_caption_loss_and_acc(img_embed, batch_seq, training=True)
@@ -442,8 +443,8 @@ class XREPCaptioningModel(keras.Model):
     # implement captioning model through call method  
     #--------------------------------------------------------------------------    
     def call(self, inputs, training):
-        images, sequences = inputs 
-        mask = tf.math.not_equal(sequences, 0)      
+        images, sequences = inputs        
+        mask = tf.math.not_equal(sequences, 0)             
         image_features = self.image_encoder(images)
         sequences = self.posembedding(sequences)
         encoder = self.encoder(image_features, training)
@@ -456,8 +457,8 @@ class XREPCaptioningModel(keras.Model):
     #--------------------------------------------------------------------------
     @property
     def metrics(self):
-        return [self.loss_tracker, self.acc_tracker]
-        
+
+        return [self.loss_tracker, self.acc_tracker]       
         
     
     # compile the model
