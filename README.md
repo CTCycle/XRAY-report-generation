@@ -66,4 +66,4 @@ These dependencies are specified in the provided `requirements.txt` file to ensu
 This project is licensed under the terms of the MIT license. See the LICENSE file for details.
 
 ## Disclaimer
-This project is for educational purposes only. It should not be used as a way to make easy money, since the model won't be able to accurately forecast numbers merely based on previous observations!
+...
