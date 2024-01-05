@@ -1,4 +1,5 @@
-dataset/XRAY images
-dataset/Tokenizers
+dataset/XRAY images/*
+dataset/Tokenizers/*
+dataset/Reports/*
 documents/
-models/
+models/*
